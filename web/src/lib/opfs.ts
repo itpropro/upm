@@ -241,24 +241,22 @@ async function sweep(dir: FileSystemDirectoryHandle): Promise<void> {
 
 // --- Inspect and clear ---
 
-/** A top-level entry of this origin's OPFS, walked to the end. */
-export interface OpfsEntry {
-  name: string;
-  files: number;
-  bytes: number;
-}
-
 export interface OpfsReport {
-  entries: OpfsEntry[];
-  /** All the entries' bytes. */
-  bytes: number;
+  /** The top-level entries, not yet walked: see `measure`. */
+  entries: FileSystemHandle[];
   /** What the browser counts for this origin, OPFS and the rest. Undefined where it won't say. */
   usage?: number;
   quota?: number;
   persisted?: boolean;
 }
 
-/** Every top-level entry with its file count and size, or undefined where there is no OPFS. */
+/** A top-level entry's file count and size. */
+export interface OpfsSize {
+  files: number;
+  bytes: number;
+}
+
+/** OPFS's top-level entries, or undefined where there is no OPFS. Walks nothing. */
 export async function inspect(): Promise<OpfsReport | undefined> {
   let root: FileSystemDirectoryHandle;
   try {
@@ -270,19 +268,35 @@ export async function inspect(): Promise<OpfsReport | undefined> {
     navigator.storage.estimate?.().catch(() => undefined),
     navigator.storage.persisted?.().catch(() => undefined),
   ]);
-  const entries: OpfsEntry[] = [];
-  for await (const handle of root.values()) {
-    const entry = { name: handle.name, files: 0, bytes: 0 };
-    if (handle.kind === "file") {
-      entry.files = 1;
-      entry.bytes = (await handle.getFile()).size;
-    } else {
-      await walk(handle, entry);
-    }
-    entries.push(entry);
+  const entries: FileSystemHandle[] = [];
+  for await (const handle of root.values()) entries.push(handle);
+  return { entries, usage: estimate?.usage, quota: estimate?.quota, persisted };
+}
+
+/**
+ * A top-level entry's file count and size. The store's comes from its package indexes, which
+ * name each blob with its size, so its blobs are never opened one by one; a blob no index names
+ * yet is not counted.
+ */
+export async function measure(handle: FileSystemHandle, signal?: AbortSignal): Promise<OpfsSize> {
+  if (handle.kind === "file") {
+    return { files: 1, bytes: (await (handle as FileSystemFileHandle).getFile()).size };
   }
-  const bytes = entries.reduce((sum, entry) => sum + entry.bytes, 0);
-  return { entries, bytes, usage: estimate?.usage, quota: estimate?.quota, persisted };
+  const dir = handle as FileSystemDirectoryHandle;
+  const sum = { files: 0, bytes: 0 };
+  if (dir.name !== DIR) {
+    await walk(dir, sum, signal);
+    return sum;
+  }
+  const blobs = new Map<string, number>();
+  for (const index of await storeIndexes(dir, signal)) {
+    sum.files++;
+    sum.bytes += index.size;
+    for (const [hash, size] of index.blobs) blobs.set(hash, size);
+  }
+  sum.files += blobs.size;
+  for (const size of blobs.values()) sum.bytes += size;
+  return sum;
 }
 
 /**
@@ -299,7 +313,11 @@ export async function opfsSize(): Promise<number | undefined> {
   }
 }
 
-async function walk(dir: FileSystemDirectoryHandle, sum: OpfsEntry): Promise<void> {
+async function walk(
+  dir: FileSystemDirectoryHandle,
+  sum: OpfsSize,
+  signal?: AbortSignal,
+): Promise<void> {
   const dirs: FileSystemDirectoryHandle[] = [];
   const files: Promise<void>[] = [];
   for await (const handle of dir.values()) {
@@ -307,6 +325,7 @@ async function walk(dir: FileSystemDirectoryHandle, sum: OpfsEntry): Promise<voi
     else {
       files.push(
         lane(async () => {
+          if (signal?.aborted) return;
           // One removed meanwhile is not counted.
           const file = await handle.getFile().catch(() => undefined);
           if (!file) return;
@@ -317,7 +336,8 @@ async function walk(dir: FileSystemDirectoryHandle, sum: OpfsEntry): Promise<voi
     }
   }
   await Promise.all(files);
-  for (const handle of dirs) await walk(handle, sum);
+  signal?.throwIfAborted();
+  for (const handle of dirs) await walk(handle, sum, signal);
 }
 
 /** A package the store keeps, from its index. */
@@ -329,21 +349,58 @@ export interface KeptPackage {
   bytes: number;
 }
 
+/** A store index as `measure` and `keptPackages` need it: its own size and its blobs. */
+interface StoreIndex {
+  size: number;
+  blobs: [hash: string, size: number][];
+  package: KeptPackage;
+}
+
+/** Each index read so far, by file name. A key's value never changes, so it is read once. */
+const indexes = new Map<string, StoreIndex>();
+
+/** The store's indexes, reading only those not read before; a torn one is left out. */
+async function storeIndexes(
+  home: FileSystemDirectoryHandle,
+  signal?: AbortSignal,
+): Promise<StoreIndex[]> {
+  const dir = await home.getDirectoryHandle("index").catch(() => undefined);
+  if (!dir) return [];
+  const names: string[] = [];
+  for await (const handle of dir.values()) if (handle.kind === "file") names.push(handle.name);
+  const fresh = names.filter((name) => !indexes.has(name));
+  await Promise.all(
+    fresh.map((name) =>
+      lane(async () => {
+        if (signal?.aborted) return;
+        const data = await read(dir, name);
+        if (!data) return;
+        try {
+          const index = JSON.parse(new TextDecoder().decode(data)) as BackendIndex;
+          indexes.set(name, {
+            size: data.length,
+            blobs: index.files.map((file) => [file.hash, file.size]),
+            package: {
+              integrity: index.integrity,
+              name: index.name,
+              version: index.version,
+              files: index.files.length,
+              bytes: index.unpackedSize,
+            },
+          });
+        } catch {}
+      }, LATER),
+    ),
+  );
+  signal?.throwIfAborted();
+  return names.flatMap((name) => indexes.get(name) ?? []);
+}
+
 /** The packages in the store; one whose index is torn is left out. */
 export async function keptPackages(): Promise<KeptPackage[]> {
   const home = await (opened ??= open());
-  const dir = await home?.getDirectoryHandle("index").catch(() => undefined);
-  if (!dir) return [];
-  const packages = await readAll(dir, (data) => {
-    const index = JSON.parse(new TextDecoder().decode(data)) as BackendIndex;
-    return {
-      integrity: index.integrity,
-      name: index.name,
-      version: index.version,
-      files: index.files.length,
-      bytes: index.unpackedSize,
-    };
-  });
+  if (!home) return [];
+  const packages = (await storeIndexes(home)).map((index) => index.package);
   return packages.sort((a, b) => (a.name ?? "~").localeCompare(b.name ?? "~"));
 }
 
@@ -352,38 +409,33 @@ export interface KeptDocument extends Head {
   bytes: number;
 }
 
-/** The registry documents kept, newest first; a torn one is left out. */
+/** Bytes read for a document's head: a url and a few short fields. */
+const HEAD = 4096;
+
+/** The registry documents kept, newest first; a torn one is left out. Reads only their heads. */
 export async function keptDocuments(): Promise<KeptDocument[]> {
   const dir = await (docs ??= openDocs());
   if (!dir) return [];
-  const documents = await readAll(dir, (data) => {
-    const end = data.indexOf(10);
-    const head = JSON.parse(new TextDecoder().decode(data.subarray(0, end))) as Head;
-    return { ...head, bytes: data.length - end - 1 };
-  });
-  return documents.sort((a, b) => b.at - a.at);
-}
-
-/** Each file of `dir` through `parse`, leaving out what it throws on. */
-async function readAll<T>(
-  dir: FileSystemDirectoryHandle,
-  parse: (data: Uint8Array) => T,
-): Promise<T[]> {
-  const names: string[] = [];
-  for await (const handle of dir.values()) if (handle.kind === "file") names.push(handle.name);
-  const parsed = await Promise.all(
-    names.map((name) =>
+  const files: FileSystemFileHandle[] = [];
+  for await (const handle of dir.values()) if (handle.kind === "file") files.push(handle);
+  const documents = await Promise.all(
+    files.map((handle) =>
       lane(async () => {
-        const data = await read(dir, name);
+        const file = await handle.getFile().catch(() => undefined);
+        if (!file) return undefined;
+        const data = new Uint8Array(await file.slice(0, HEAD).arrayBuffer());
+        const end = data.indexOf(10);
+        if (end < 0) return undefined;
         try {
-          return data && parse(data);
+          const head = JSON.parse(new TextDecoder().decode(data.subarray(0, end))) as Head;
+          return { ...head, bytes: file.size - end - 1 };
         } catch {
           return undefined;
         }
       }, LATER),
     ),
   );
-  return parsed.filter((item) => item !== undefined);
+  return documents.filter((doc) => doc !== undefined).sort((a, b) => b.at - a.at);
 }
 
 /**
@@ -396,6 +448,7 @@ export async function clear(name?: string): Promise<void> {
   if (name) names.push(name);
   else for await (const handle of root.values()) names.push(handle.name);
   opened = docs = undefined;
+  indexes.clear();
   const failed = (
     await Promise.allSettled(names.map((n) => root.removeEntry(n, { recursive: true })))
   ).find((result) => result.status === "rejected");

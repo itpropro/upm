@@ -1,14 +1,16 @@
 // The Storage panel: what this browser keeps on OPFS (./lib/opfs.ts) between visits, and a way
-// to clear it. Walked afresh each time the tab is shown.
+// to clear it. Shows what it last found at once, then reads OPFS again each time the tab is shown.
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import {
   clear,
   inspect,
   keptDocuments,
   keptPackages,
+  measure,
   type KeptDocument,
   type KeptPackage,
   type OpfsReport,
+  type OpfsSize,
 } from "../lib/opfs.ts";
 import { formatBytes } from "./code.tsx";
 import { Badge, Icon, IconButton, Spinner, Waiting } from "./ui.tsx";
@@ -19,22 +21,44 @@ const KNOWN: Record<string, { label: string; about: string }> = {
   "upm-docs": { label: "Registry documents", about: "the resolver's answers, kept while fresh" },
 };
 
+/** What the tab last found, shown while it reads again. */
+let last: { report: OpfsReport; sizes: Record<string, OpfsSize> } | undefined;
+
 export function Storage({ onSize }: { onSize: (bytes: number) => void }) {
-  // Undefined while walking, null where there is no OPFS.
-  const [report, setReport] = useState<OpfsReport | Error | null>();
+  // Undefined while reading, null where there is no OPFS.
+  const [report, setReport] = useState<OpfsReport | Error | null | undefined>(last?.report);
+  // Each entry's size by name, filled in as each is measured.
+  const [sizes, setSizes] = useState<Record<string, OpfsSize>>(last?.sizes ?? {});
   const [error, setError] = useState<Error>();
   const [open, setOpen] = useState<string>();
-  const load = () => {
-    setReport(undefined);
-    inspect().then(
-      (report) => {
-        setReport(report ?? null);
-        if (report) onSize(report.bytes);
-      },
-      (error: Error) => setReport(error),
-    );
-  };
-  useEffect(load, []);
+  const [round, setRound] = useState(0);
+  const load = () => setRound((round) => round + 1);
+  useEffect(() => {
+    const abort = new AbortController();
+    const { signal } = abort;
+    void (async () => {
+      const report = await inspect();
+      if (signal.aborted) return;
+      setReport(report ?? null);
+      if (!report) return;
+      const fresh: Record<string, OpfsSize> = {};
+      await Promise.all(
+        report.entries.map(async (handle) => {
+          const size = await measure(handle, signal);
+          fresh[handle.name] = size;
+          if (!signal.aborted) setSizes((sizes) => ({ ...sizes, [handle.name]: size }));
+        }),
+      );
+      if (signal.aborted) return;
+      setSizes(fresh);
+      last = { report, sizes: fresh };
+      onSize(Object.values(fresh).reduce((sum, size) => sum + size.bytes, 0));
+    })().catch((error: Error) => {
+      if (!signal.aborted) setReport(error);
+    });
+    return () => abort.abort();
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [round]);
   const remove = async (name?: string) => {
     setError(undefined);
     await clear(name).catch((error: Error) => setError(error));
@@ -50,11 +74,13 @@ export function Storage({ onSize }: { onSize: (bytes: number) => void }) {
   }
   if (report === null) return <Waiting>This browser has no OPFS.</Waiting>;
   if (report instanceof Error) return <Waiting>Could not read OPFS: {report.message}</Waiting>;
+  const measured = report.entries.every((entry) => sizes[entry.name]);
+  const bytes = report.entries.reduce((sum, entry) => sum + (sizes[entry.name]?.bytes ?? 0), 0);
   return (
     <div className="text-xs">
       <div className="sticky top-0 z-10 flex items-center gap-2 bg-(--editor-bg)/85 py-1 pr-1.5 pl-3 text-[11px] text-zinc-500 backdrop-blur-xl">
         <span title="OPFS, then all this origin keeps, as the browser counts it">
-          {formatBytes(report.bytes)} on OPFS
+          {measured ? formatBytes(bytes) : <Spinner />} on OPFS
           {report.usage !== undefined && (
             <>
               {" · "}
@@ -92,6 +118,7 @@ export function Storage({ onSize }: { onSize: (bytes: number) => void }) {
           <tbody>
             {report.entries.map((entry) => {
               const known = KNOWN[entry.name];
+              const size = sizes[entry.name];
               const expanded = open === entry.name;
               return (
                 <Fragment key={entry.name}>
@@ -116,10 +143,10 @@ export function Storage({ onSize }: { onSize: (bytes: number) => void }) {
                       {known && ` · ${known.about}`}
                     </td>
                     <td className="pl-3 text-right leading-7 whitespace-nowrap tabular-nums text-zinc-500">
-                      {entry.files.toLocaleString()} files
+                      {size ? `${size.files.toLocaleString()} files` : <Spinner />}
                     </td>
                     <td className="pl-3 text-right leading-7 whitespace-nowrap tabular-nums">
-                      {formatBytes(entry.bytes)}
+                      {size && formatBytes(size.bytes)}
                     </td>
                     <td className="w-px pr-1.5 pl-2 leading-7">
                       <ClearButton

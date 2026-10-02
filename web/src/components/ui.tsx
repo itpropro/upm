@@ -307,7 +307,7 @@ export function Tab(props: {
       aria-label={props.title}
       aria-selected={props.active}
       onClick={props.onClick}
-      className={`flex h-7 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-colors ${
+      className={`flex h-7 items-center justify-center gap-1 rounded-lg px-2 text-xs font-medium whitespace-nowrap transition-colors sm:gap-1.5 sm:px-3 ${
         props.active
           ? "bg-(--editor-bg) text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100"
           : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"

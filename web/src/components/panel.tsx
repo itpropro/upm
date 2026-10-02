@@ -34,7 +34,7 @@ export function Panel(props: {
   const tabs: [PanelTab, string, (number | string)?][] = [
     ["problems", "Problems", problems.length],
     ["requests", "Requests", requests.length],
-    ["storage", "Storage", opfs === undefined ? undefined : formatBytes(opfs)],
+    ["storage", "Storage", opfs === undefined ? undefined : shortBytes(opfs)],
   ];
   return (
     <section
@@ -58,7 +58,7 @@ export function Panel(props: {
               <Tab key={name} active={tab === name} onClick={() => props.setTab(name)}>
                 {label}
                 {count !== undefined && (
-                  <span className="rounded-full bg-zinc-200 px-1.5 text-[10px] leading-4 tabular-nums dark:bg-zinc-700">
+                  <span className="rounded-full bg-zinc-200 px-1 text-[10px] leading-4 tabular-nums sm:px-1.5 dark:bg-zinc-700">
                     {count}
                   </span>
                 )}
@@ -225,4 +225,9 @@ function Stack({ error }: { error: Error }) {
   const stack = error.stack?.replace(`${error.name}: ${error.message}\n`, "").trimEnd();
   if (!stack || stack === `${error.name}: ${error.message}`) return null;
   return <pre className="mt-1 whitespace-pre-wrap text-zinc-500">{stack}</pre>;
+}
+
+/** A size short enough for a tab's badge: whole units from 10 up. */
+function shortBytes(n: number): string {
+  return formatBytes(n).replace(/^(\d{2,})\.\d/, "$1");
 }
