@@ -76,12 +76,15 @@ function component(key: string, pkg: ResolvedPackage) {
     name: name.slice(slash + 1),
     version: pkg.version,
     purl: `pkg:npm/${name.split("/").map(encodeURIComponent).join("/")}@${encodeURIComponent(pkg.version)}`,
-    externalReferences: [
-      {
-        type: "distribution",
-        url: pkg.resolved,
-        ...(hash && { hashes: [hash] }),
-      },
-    ],
+    // Workspaces and links have no archive to point to.
+    ...(pkg.resolved && {
+      externalReferences: [
+        {
+          type: "distribution",
+          url: pkg.resolved,
+          ...(hash && { hashes: [hash] }),
+        },
+      ],
+    }),
   };
 }

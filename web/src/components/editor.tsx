@@ -336,21 +336,24 @@ function Sbom({
 }
 
 function FileActions({ path, content }: { path: string; content: () => string }) {
-  const [copied, setCopied] = useState(false);
+  const [label, setLabel] = useState("copy");
   return (
     <>
       <IconButton
         icon="copy"
         title="Copy"
         onClick={() => {
-          void navigator.clipboard.writeText(content());
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1200);
+          const show = (text: string) => {
+            setLabel(text);
+            setTimeout(() => setLabel("copy"), 1200);
+          };
+          navigator.clipboard.writeText(content()).then(
+            () => show("copied"),
+            () => show("failed"),
+          );
         }}
       >
-        <span className={path === SBOM ? "hidden md:inline" : undefined}>
-          {copied ? "copied" : "copy"}
-        </span>
+        <span className={path === SBOM ? "hidden md:inline" : undefined}>{label}</span>
       </IconButton>
       <IconButton
         icon="download"

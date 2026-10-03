@@ -138,6 +138,22 @@ describe("SBOM", () => {
     );
   });
 
+  it("omits the distribution of a package without an archive", () => {
+    const shared = {
+      ...resolution.packages["shared@1.0.0"]!,
+      resolved: "",
+      integrity: "",
+      local: "packages/shared",
+    };
+    const bom = createSbom(
+      { ...resolution, packages: { ...resolution.packages, "shared@1.0.0": shared } },
+      "demo",
+    );
+    const entry = bom.components.find((component) => component["bom-ref"] === "shared@1.0.0");
+    expect(entry).toMatchObject({ name: "shared", version: "1.0.0" });
+    expect(entry).not.toHaveProperty("externalReferences");
+  });
+
   it("exports legacy archive hashes without Node or Buffer", async () => {
     const legacy: Resolution = {
       root: resolution.root,
@@ -160,7 +176,7 @@ describe("SBOM", () => {
       vi.unstubAllGlobals();
       vi.resetModules();
     }
-    expect(bom.metadata.component?.externalReferences[0]?.hashes).toEqual([
+    expect(bom.metadata.component?.externalReferences?.[0]?.hashes).toEqual([
       { alg: "SHA-1", content: "3c".repeat(20) },
     ]);
   });
