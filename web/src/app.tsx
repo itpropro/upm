@@ -27,7 +27,7 @@ import {
   type InstalledFile,
 } from "./lib/install.ts";
 import { Panel, type PanelTab, type Problem } from "./components/panel.tsx";
-import { EXAMPLES, pathOf, specOf } from "./lib/route.ts";
+import { EXAMPLES, openOf, pathOf, searchOf, specOf, type Lines } from "./lib/route.ts";
 import { StatusBar } from "./components/statusbar.tsx";
 import { Sidebar } from "./components/sidebar.tsx";
 import { TopBar } from "./components/topbar.tsx";
@@ -71,6 +71,11 @@ export function App({ ready }: { ready?: Promise<unknown> }) {
   const [view, setView] = useState<View>();
   const [client, setClient] = useState<Client>();
   const [selected, setSelected] = useState("");
+  // A shared link's file and lines, opened once its run has them.
+  const [linked] = useState(() => openOf(location.search));
+  const [lines, setLines] = useState(linked.lines);
+  // Whether the open file goes in the url: one picked, not the README a run opens on.
+  const [pinned, setPinned] = useState(!!linked.file);
   const [panel, setPanel] = useState<PanelTab>();
   // Once the panel was opened or closed, it stays as left. A small screen can't spare the room.
   const panelSet = useRef(narrow());
@@ -94,12 +99,16 @@ export function App({ ready }: { ready?: Promise<unknown> }) {
   // Many requests and picks move per frame; draw at most once a frame.
   const redraw = useThrottledRedraw(() => setTick((n) => n + 1));
 
-  /** A run fetches the package alone; `andInstall` presses the Install button with it. */
+  /**
+   * A run fetches the package alone; `andInstall` presses the Install button with it. It opens
+   * on `file` when given, else on the package's README.
+   */
   function submit(
     raw = spec,
     registry = registryUrl,
     after?: Promise<unknown>,
     andInstall = false,
+    file?: string,
   ) {
     if (!raw.trim()) return;
     setSpec(raw);
@@ -129,12 +138,17 @@ export function App({ ready }: { ready?: Promise<unknown> }) {
         started: performance.now(),
         dependencies: query.dependencies,
       });
-      setSelected(treePath(query.name, "package.json"));
+      const first = treePath(query.name, "package.json");
+      const root = treePath(query.name);
+      setSelected(file ?? first);
+      if (!file) {
+        setLines(undefined);
+        setPinned(false);
+      }
       settle("top", query.top);
       settle("manifest", query.manifest);
       // Open the README once it is in, unless another file was picked meanwhile. Set in the same
       // callback as the file, so the tree mounts with it already selected.
-      const first = treePath(query.name, "package.json");
       query.readme.then((readme) => {
         if (!readme || run.current !== id) return;
         setSelected((now) => (now === first ? treePath(query.name, readme.path) : now));
@@ -143,9 +157,15 @@ export function App({ ready }: { ready?: Promise<unknown> }) {
       query.tarball.then(
         (tarball) => {
           if (run.current !== id) return;
-          const readme = readmeOf(tarball.files.map((f) => f.path));
+          const paths = tarball.files.map((f) => f.path);
+          const readme = readmeOf(paths);
+          // A link to a file the package does not have opens on its README.
+          const lost = !!file?.startsWith(root) && !paths.includes(file.slice(root.length));
+          if (lost) setLines(undefined);
           if (readme) {
-            setSelected((now) => (now === first ? treePath(query.name, readme) : now));
+            setSelected((now) =>
+              now === first || (lost && now === file) ? treePath(query.name, readme) : now,
+            );
           }
           update({ tarball });
         },
@@ -173,8 +193,10 @@ export function App({ ready }: { ready?: Promise<unknown> }) {
           () => {},
         );
       };
+      // A link to a file the install adds, the lockfile or a dependency's, needs the install.
+      const deep = !!file && file !== "package.json" && !file.startsWith(root);
       if (andInstall) startInstall.current();
-      else if (!narrow()) {
+      else if (!narrow() || deep) {
         // A wide screen presses Install itself once the README (or the tarball, without one) has
         // painted, so the walk's requests don't hold it back. A small one waits for the button.
         const start = startInstall.current;
@@ -254,9 +276,20 @@ export function App({ ready }: { ready?: Promise<unknown> }) {
 
   // A shared link runs its query, once the landing's view transition allows.
   useEffect(() => {
-    if (spec) submit(spec, registryUrl, ready);
+    if (spec) submit(spec, registryUrl, ready, false, linked.file);
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The url keeps the picked file and lines, so a reload or a shared link opens them again.
+  const shownSpec = view?.spec.trim();
+  useEffect(() => {
+    if (!shownSpec) return;
+    history.replaceState(
+      null,
+      "",
+      pathOf(shownSpec) + searchOf(pinned ? selected : undefined, lines),
+    );
+  }, [shownSpec, pinned, selected, lines]);
 
   const requests = client?.requests ?? [];
   const picked = [...picks.current.values()].reduce((sum, list) => sum + list.length, 0);
@@ -315,11 +348,21 @@ export function App({ ready }: { ready?: Promise<unknown> }) {
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [hasEntries]);
 
-  /** A fresh run of the same spec that installs right away. */
+  /** A fresh run of the same spec that installs right away, on the same picked file. */
   const reinstall = () => {
     if (!view) return;
-    submit(view.spec, registryUrl, undefined, true);
+    submit(view.spec, registryUrl, undefined, true, pinned ? selected : undefined);
     setSidebar(true);
+  };
+  /** A file the user opens: it goes in the url. */
+  const pick = (path: string) => {
+    setSelected(path);
+    setLines(undefined);
+    setPinned(true);
+  };
+  const pickLines = (picked: Lines | undefined) => {
+    setLines(picked);
+    setPinned(true);
   };
   /** The Install button: the sidebar shows the tree as it comes in. */
   const installNow = () => {
@@ -388,7 +431,7 @@ export function App({ ready }: { ready?: Promise<unknown> }) {
               onInstall={installNow}
               onReinstall={reinstall}
               onSelect={(path) => {
-                setSelected(path);
+                pick(path);
                 // On a small screen the sidebar floats over the editor: get it out of the way.
                 if (narrow()) setSidebar(false);
               }}
@@ -416,7 +459,7 @@ export function App({ ready }: { ready?: Promise<unknown> }) {
                   setReveal({ path });
                 },
                 open: (path) => {
-                  setSelected(path);
+                  pick(path);
                   setReveal({ path });
                 },
               }}
@@ -425,6 +468,8 @@ export function App({ ready }: { ready?: Promise<unknown> }) {
                 view={view}
                 files={files}
                 selected={selected}
+                lines={lines}
+                onLines={pickLines}
                 picked={picked}
                 starting={shared}
                 examples={EXAMPLES}

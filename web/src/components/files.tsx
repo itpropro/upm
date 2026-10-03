@@ -254,6 +254,14 @@ function Tree(props: {
   }
   const current = dir ?? selected;
 
+  // The selected file's folders open once it lands, as for a link to it.
+  const [landed, setLanded] = useState<string>();
+  if (selected !== landed && files?.has(selected)) {
+    setLanded(selected);
+    const up = ancestors(selected).slice(0, -1);
+    if (up.some((path) => !open.has(path))) setOpen(new Set([...open, ...up]));
+  }
+
   // Open the way to a revealed path while rendering, so the row is there once it commits.
   const [target, setTarget] = useState(reveal);
   const [seen, setSeen] = useState(reveal);
