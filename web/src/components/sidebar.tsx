@@ -31,9 +31,11 @@ export function Sidebar(props: {
       {/* On a small screen the toggle has its own line above the editor, and keeps it while the
           open sidebar floats over the page. */}
       <div
-        className={`flex shrink-0 justify-end pr-2 max-sm:pb-1 sm:pr-5 lg:pr-9 xl:pr-15 ${open ? "sm:hidden" : ""}`}
+        className={`flex shrink-0 justify-end pr-3 max-sm:pb-1 sm:pr-6 lg:pr-10 xl:pr-16 ${open ? "sm:hidden" : ""}`}
       >
-        <Toggle open={false} onClick={() => setOpen(true)} />
+        <div className={`self-start p-1.5 ${ISLAND}`}>
+          <Toggle open={false} onClick={() => setOpen(true)} />
+        </div>
       </div>
       {/* A click beside the floating sidebar closes it. */}
       {open && <div className="absolute inset-0 z-20 sm:hidden" onClick={() => setOpen(false)} />}
@@ -96,7 +98,7 @@ function Toggle({ open, onClick }: { open: boolean; onClick: () => void }) {
       type="button"
       title={open ? "Hide the sidebar" : "Show the sidebar"}
       onClick={onClick}
-      className="flex size-8 shrink-0 items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-200/60 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+      className="flex size-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-200/60 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
     >
       <Icon name="sidebar" className="size-4" />
     </button>
