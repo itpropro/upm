@@ -15,7 +15,7 @@ import {
 } from "./lib/client.ts";
 import { Dependencies, type Picks } from "./components/deps.tsx";
 import { Breadcrumb, Editor } from "./components/editor.tsx";
-import { Explorer, treePath } from "./components/files.tsx";
+import { Explorer, STORE_ENTRY, treePath } from "./components/files.tsx";
 import { loadMarkdown } from "./components/markdown.tsx";
 import { fillCrypto } from "./lib/insecure.ts";
 import { opfsSize } from "./lib/opfs.ts";
@@ -151,7 +151,8 @@ export function App({ ready }: { ready?: Promise<unknown> }) {
       // callback as the file, so the tree mounts with it already selected.
       query.readme.then((readme) => {
         if (!readme || run.current !== id) return;
-        setSelected((now) => (now === first ? treePath(query.name, readme.path) : now));
+        // A linked file stays, even the package's package.json.
+        if (!file) setSelected((now) => (now === first ? treePath(query.name, readme.path) : now));
         update({ readme });
       });
       query.tarball.then(
@@ -164,7 +165,9 @@ export function App({ ready }: { ready?: Promise<unknown> }) {
           if (lost) setLines(undefined);
           if (readme) {
             setSelected((now) =>
-              now === first || (lost && now === file) ? treePath(query.name, readme) : now,
+              (now === first && !file) || (lost && now === file)
+                ? treePath(query.name, readme)
+                : now,
             );
           }
           update({ tarball });
@@ -189,7 +192,7 @@ export function App({ ready }: { ready?: Promise<unknown> }) {
         resolved.then(
           (done) =>
             run.current === id &&
-            install(id, query.dependencies, registry, next.fetch, done.lockfile),
+            install(id, query.dependencies, registry, next.fetch, done.lockfile, file),
           () => {},
         );
       };
@@ -217,6 +220,7 @@ export function App({ ready }: { ready?: Promise<unknown> }) {
     registry: string,
     logged: typeof fetch,
     lockfile?: string,
+    file?: string,
   ) {
     const warnings: string[] = [];
     const update = (part: Partial<View>) =>
@@ -237,10 +241,14 @@ export function App({ ready }: { ready?: Promise<unknown> }) {
         (installed) => {
           last.current = { id, installed };
           update({ installed });
-          // The tree keeps its paths through the install, so what was open still is.
-          if (run.current === id) {
-            setSelected((now) => (installed.files.has(now) ? now : "package.json"));
-          }
+          // The tree keeps its paths through the install, so what was open still is. A linked
+          // file in `.upm` may be under another hash now: its package's deps changed since.
+          if (run.current !== id) return;
+          const moved = file && !installed.files.has(file) && rehashed(installed.files, file);
+          if (file && !installed.files.has(file) && !moved) setLines(undefined);
+          setSelected((now) =>
+            installed.files.has(now) ? now : now === file && moved ? moved : "package.json",
+          );
         },
         (error: Error) => update({ installed: error }),
       )
@@ -582,6 +590,21 @@ function useThrottledRedraw(redraw: () => void): () => void {
     },
     [],
   );
+}
+
+/** `path` in the same `.upm` entry, `<name>@<version>`, under another hash. */
+function rehashed(files: Map<string, InstalledFile>, path: string): string | undefined {
+  const parts = path.split("/");
+  const at = parts.indexOf(".upm") + 1;
+  const entry = at > 0 && STORE_ENTRY.exec(parts[at] ?? "");
+  if (!entry) return;
+  const rest = `/${parts.slice(at + 1).join("/")}`;
+  const head = `${parts.slice(0, at).join("/")}/${entry[1]}-`;
+  for (const other of files.keys()) {
+    if (other.startsWith(head) && other.endsWith(rest) && other.length === path.length) {
+      return other;
+    }
+  }
 }
 
 /** The package's README at its root, Markdown first. */

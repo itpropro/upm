@@ -30,13 +30,29 @@ export function Code(props: {
     }
   }, [html, lines]);
 
-  // A file that opens with lines picked, as from a link, scrolls to them.
+  // A file that opens with lines picked, as from a link, scrolls to them. Its later stages (the
+  // tarball's copy, then the install's), the sidebar and fonts move them: scroll again on each,
+  // until the user scrolls or clicks.
   useLayoutEffect(() => {
     const box = ref.current!;
-    const row = box.querySelector(".sel");
-    if (!row) return;
-    box.scrollTop += row.getBoundingClientRect().top - box.getBoundingClientRect().top;
-    box.scrollTop -= box.clientHeight / 3;
+    if (!box.querySelector(".sel")) return;
+    const scroll = () => {
+      const row = box.querySelector(".sel");
+      if (!row) return;
+      box.scrollTop += row.getBoundingClientRect().top - box.getBoundingClientRect().top;
+      box.scrollTop -= box.clientHeight / 3;
+    };
+    scroll();
+    const resize = new ResizeObserver(scroll);
+    resize.observe(box);
+    resize.observe(box.firstElementChild!);
+    const events = ["wheel", "touchstart", "pointerdown"];
+    const stop = () => {
+      resize.disconnect();
+      for (const type of events) box.removeEventListener(type, stop);
+    };
+    for (const type of events) box.addEventListener(type, stop, { passive: true });
+    return stop;
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [html]);
 
