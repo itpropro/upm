@@ -28,12 +28,12 @@ export function Sidebar(props: {
 
   return (
     <>
-      {/* On a small screen the collapsed toggle floats at the bottom right. */}
+      {/* The mobile toggle stays at the bottom right, above the sidebar's fade. */}
       <div
-        className={`${open ? "hidden" : "flex"} shrink-0 justify-end pr-3 max-sm:absolute max-sm:right-0 max-sm:bottom-3 max-sm:z-30 sm:pr-6 lg:pr-10 xl:pr-16`}
+        className={`${open ? "hidden max-sm:flex" : "flex"} shrink-0 justify-end pr-3 max-sm:absolute max-sm:right-0 max-sm:bottom-3 max-sm:z-30 sm:pr-6 lg:pr-10 xl:pr-16`}
       >
-        <div className={`self-start p-1.5 ${ISLAND}`}>
-          <Toggle open={false} onClick={() => setOpen(true)} />
+        <div className={`self-start p-1.5 ${open ? "border border-transparent" : ISLAND}`}>
+          <Toggle open={open} onClick={() => setOpen(!open)} />
         </div>
       </div>
       {/* A click beside the floating sidebar closes it. */}
@@ -82,9 +82,8 @@ export function Sidebar(props: {
           >
             {props.dependencies}
           </Section>
-          <div className="mt-auto flex shrink-0 justify-end p-1.5 sm:hidden">
-            <Toggle open onClick={() => setOpen(false)} />
-          </div>
+          {/* Keeps the floating toggle clear of both panes. */}
+          <div className="mt-auto h-11 shrink-0 sm:hidden" />
         </div>
         <Sash
           place="inset-y-0 left-0 w-3"
