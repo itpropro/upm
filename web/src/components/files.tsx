@@ -254,6 +254,14 @@ function Tree(props: {
   }
   const current = dir ?? selected;
 
+  // The selected file's folders open once it lands, as for a link to it.
+  const [landed, setLanded] = useState<string>();
+  if (selected !== landed && files?.has(selected)) {
+    setLanded(selected);
+    const up = ancestors(selected).slice(0, -1);
+    if (up.some((path) => !open.has(path))) setOpen(new Set([...open, ...up]));
+  }
+
   // Open the way to a revealed path while rendering, so the row is there once it commits.
   const [target, setTarget] = useState(reveal);
   const [seen, setSeen] = useState(reveal);
@@ -283,12 +291,18 @@ function Tree(props: {
     go(path);
   }
 
-  // Bring the selected row into view once: when it changes, or when it first lands.
+  // Bring the selected row into view: when it changes, when it first lands, and as the tarball's
+  // and the install's rows land around it, until the tree is scrolled by hand.
+  const shownTop = useRef(top);
+  const scrolled = useRef(false);
   useLayoutEffect(() => {
     const box = list.current;
     const row = box?.querySelector("[aria-current]");
-    if (!box || !row || shown.current === current || !box.clientHeight) return;
+    if (!box || !row || !box.clientHeight) return;
+    if (shown.current === current && (shownTop.current === top || scrolled.current)) return;
+    if (shown.current !== current) scrolled.current = false;
     shown.current = current;
+    shownTop.current = top;
     const outer = box.getBoundingClientRect();
     const inner = row.getBoundingClientRect();
     if (inner.top < outer.top || inner.bottom > outer.bottom) {
@@ -386,14 +400,19 @@ function Tree(props: {
   }
 
   return (
-    <ul ref={list} className="min-h-0 flex-1 overflow-auto pb-4 text-xs">
+    <ul
+      ref={list}
+      onWheel={() => (scrolled.current = true)}
+      onTouchStart={() => (scrolled.current = true)}
+      className="min-h-0 flex-1 overflow-auto pb-4 text-xs"
+    >
       {rows(top, 0)}
     </ul>
   );
 }
 
 // A `.upm` entry, `<name>@<version>-<hash>`: the 22-char hash is grayed out.
-const STORE_ENTRY = /^(.+@.+)(-[\w-]{22})$/;
+export const STORE_ENTRY = /^(.+@.+)(-[\w-]{22})$/;
 
 function StoreName({ name }: { name: string }) {
   const match = STORE_ENTRY.exec(name);

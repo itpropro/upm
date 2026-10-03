@@ -15,6 +15,7 @@ import { LOCK, linked, treePath } from "./files.tsx";
 import { bindInstall, installCard } from "./install.ts";
 import { InstallButton } from "./install-button.tsx";
 import type { InstalledFile } from "../lib/install.ts";
+import type { Lines } from "../lib/route.ts";
 import { toBase64 } from "upm/src/runtime.ts";
 import { SBOM } from "upm/src/sbom.ts";
 import type { Platform } from "upm/src/resolve.ts";
@@ -35,6 +36,9 @@ export function Editor(props: {
   view: View | undefined;
   files: Map<string, InstalledFile> | undefined;
   selected: string;
+  /** The open file's picked lines. */
+  lines?: Lines;
+  onLines: (lines: Lines | undefined) => void;
   picked: number;
   /** A run is about to start, so no welcome. */
   starting?: boolean;
@@ -43,7 +47,7 @@ export function Editor(props: {
   onInstall: () => void;
   onSbomTarget: (target?: Platform) => void;
 }) {
-  const { view, files, selected, picked } = props;
+  const { view, files, selected, lines, onLines, picked } = props;
   if (!view && props.starting) return <MarkdownSkeleton />;
   if (!view) return <Welcome examples={props.examples} onRun={props.onRun} />;
   // The status bar shows the walk's progress; the README skeleton holds its place.
@@ -55,10 +59,14 @@ export function Editor(props: {
       </div>
     );
   }
-  if (selected === LOCK) return <Lockfile resolved={view.resolved} picked={picked} />;
+  if (selected === LOCK) {
+    return <Lockfile resolved={view.resolved} picked={picked} lines={lines} onLines={onLines} />;
+  }
   const file = files?.get(selected);
   if (selected === SBOM && file) {
-    return <Sbom view={view} file={file} onTarget={props.onSbomTarget} />;
+    return (
+      <Sbom view={view} file={file} lines={lines} onLines={onLines} onTarget={props.onSbomTarget} />
+    );
   }
   if (files && file) {
     const manifest = view.manifest instanceof Error ? undefined : view.manifest;
@@ -72,6 +80,8 @@ export function Editor(props: {
         path={selected}
         file={file}
         files={files}
+        lines={lines}
+        onLines={onLines}
         install={
           readme && (
             <InstallCard
@@ -96,6 +106,12 @@ export function Editor(props: {
   }
   // Most packages open on their README once the tarball lands.
   if (!view.tarball) return <MarkdownSkeleton>Fetching tarball</MarkdownSkeleton>;
+  // A link to a file the install adds opens it once the install lands.
+  const installing =
+    view.requested &&
+    !(view.resolved instanceof Error) &&
+    (view.installed === undefined || view.installed === true);
+  if (installing) return <Waiting live>Installing</Waiting>;
   return <Waiting>Select a file</Waiting>;
 }
 
@@ -113,6 +129,8 @@ function FileView(props: {
   path: string;
   file: InstalledFile;
   files: Map<string, InstalledFile>;
+  lines?: Lines;
+  onLines: (lines: Lines | undefined) => void;
   /** Shown above the rendered Markdown. */
   install?: ReactNode;
   /** The package's folder in its repository, for what its tarball leaves out. */
@@ -120,13 +138,14 @@ function FileView(props: {
   /** The package's tree path, where `repo` begins. */
   root: string;
 }) {
-  const { path, file, files, repo, root } = props;
+  const { path, file, files, lines, onLines, repo, root } = props;
   const { open } = useContext(Breadcrumb);
   // A symlink shows the file it leads to; one out of the tree shows its target path.
   const target = useMemo(() => linked(files, file), [files, file]);
   const content = target ?? file;
   const shown = useMemo(() => preview(content.path, content.data), [content]);
-  const [source, setSource] = useState(false);
+  // Markdown opened at its lines, as from a link, shows its source.
+  const [source, setSource] = useState(!!lines);
   const markdown = shown.lang === "md" || shown.lang === "markdown";
   // Relative links and images in a README point into the tree, which holds the tarball's files:
   // an image shows from its bytes, a link opens the file here. What the tarball leaves out, such
@@ -155,7 +174,10 @@ function FileView(props: {
           <IconButton
             icon={source ? "eye" : "code"}
             title={source ? "Show the rendered Markdown" : "Show the Markdown source"}
-            onClick={() => setSource(!source)}
+            onClick={() => {
+              setSource(!source);
+              if (source) onLines(undefined);
+            }}
           >
             {source ? "preview" : "source"}
           </IconButton>
@@ -174,7 +196,7 @@ function FileView(props: {
   }
   return (
     <Frame crumbs={crumbs}>
-      <Code {...shown} />
+      <Code {...shown} lines={lines} onLines={onLines} />
     </Frame>
   );
 }
@@ -219,7 +241,13 @@ function InstallCard(props: { spec: string; meta: ReactNode; children: ReactNode
 // Whether the commands to install upm and add the package show, kept for the next package.
 let commandsOpen = false;
 
-function Lockfile({ resolved, picked }: { resolved: View["resolved"]; picked: number }) {
+function Lockfile(props: {
+  resolved: View["resolved"];
+  picked: number;
+  lines?: Lines;
+  onLines: (lines: Lines | undefined) => void;
+}) {
+  const { resolved, picked } = props;
   if (!resolved) return <Waiting live>Resolving · {picked} picked</Waiting>;
   if (resolved instanceof Error) {
     return (
@@ -239,7 +267,7 @@ function Lockfile({ resolved, picked }: { resolved: View["resolved"]; picked: nu
         />
       }
     >
-      <Code text={text} lang="json" />
+      <Code text={text} lang="json" lines={props.lines} onLines={props.onLines} />
     </Frame>
   );
 }
@@ -247,10 +275,14 @@ function Lockfile({ resolved, picked }: { resolved: View["resolved"]; picked: nu
 function Sbom({
   view,
   file,
+  lines,
+  onLines,
   onTarget,
 }: {
   view: View;
   file: InstalledFile;
+  lines?: Lines;
+  onLines: (lines: Lines | undefined) => void;
   onTarget: (target?: Platform) => void;
 }) {
   const shown = useMemo(() => preview(SBOM, file.data), [file]);
@@ -297,7 +329,7 @@ function Sbom({
           <ErrorBox error={view.sbomError} title="Could not export this target" />
         </div>
       ) : (
-        <Code {...shown} />
+        <Code {...shown} lines={lines} onLines={onLines} />
       )}
     </Frame>
   );

@@ -80,6 +80,20 @@ html[data-theme="dark"] {
   color: light-dark(#a1a1aa, #52525b);
   background: var(--chrome-bg);
 }
+.code.pickable .n {
+  cursor: pointer;
+  &:hover {
+    color: light-dark(#52525b, #a1a1aa);
+  }
+}
+/* Picked lines, from a click on their numbers or the url. */
+.code .sel {
+  background: rgb(245 158 11 / 0.12);
+  &.n {
+    color: rgb(217 119 6);
+    background: rgb(245 158 11 / 0.18);
+  }
+}
 
 /* The landing's README. */
 .readme {
