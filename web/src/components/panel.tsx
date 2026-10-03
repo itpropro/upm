@@ -74,7 +74,7 @@ export function Panel(props: {
             <IconButton icon="close" title="Close panel (Ctrl+`)" onClick={props.onClose} />
           </span>
         </div>
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div className="min-h-0 flex-1 overflow-auto max-sm:pb-12">
           {tab === "requests" ? (
             <Requests requests={requests} />
           ) : tab === "storage" ? (
