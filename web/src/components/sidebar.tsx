@@ -28,12 +28,12 @@ export function Sidebar(props: {
 
   return (
     <>
-      {/* On a small screen the toggle floats at the bottom right below the open sidebar. */}
+      {/* On a small screen the collapsed toggle floats at the bottom right. */}
       <div
-        className={`flex shrink-0 justify-end pr-3 max-sm:absolute max-sm:right-0 max-sm:bottom-3 max-sm:z-30 sm:pr-6 lg:pr-10 xl:pr-16 ${open ? "sm:hidden" : ""}`}
+        className={`${open ? "hidden" : "flex"} shrink-0 justify-end pr-3 max-sm:absolute max-sm:right-0 max-sm:bottom-3 max-sm:z-30 sm:pr-6 lg:pr-10 xl:pr-16`}
       >
         <div className={`self-start p-1.5 ${ISLAND}`}>
-          <Toggle open={open} onClick={() => setOpen(!open)} />
+          <Toggle open={false} onClick={() => setOpen(true)} />
         </div>
       </div>
       {/* A click beside the floating sidebar closes it. */}
@@ -42,7 +42,7 @@ export function Sidebar(props: {
       {/* Both views stay mounted, so folding keeps their scroll, selection and expansion. */}
       <aside
         style={{ width }}
-        className={`relative box-content max-w-[75vw] shrink-0 flex-col pr-3 pl-3 sm:pr-6 lg:pr-10 xl:pr-16 max-sm:absolute max-sm:top-0 max-sm:right-0 max-sm:bottom-3 max-sm:z-20 max-sm:flex max-sm:origin-bottom-right max-sm:pb-14 max-sm:transition-[opacity,scale,visibility] max-sm:duration-200 max-sm:ease-out max-sm:motion-reduce:transition-none ${open ? "flex" : "hidden max-sm:pointer-events-none max-sm:invisible max-sm:scale-95 max-sm:opacity-0"}`}
+        className={`relative box-content max-w-[75vw] shrink-0 flex-col pr-3 pl-3 sm:pr-6 lg:pr-10 xl:pr-16 max-sm:absolute max-sm:top-0 max-sm:right-0 max-sm:bottom-3 max-sm:z-20 max-sm:flex max-sm:origin-bottom-right max-sm:duration-200 max-sm:ease-out max-sm:motion-reduce:transition-none ${open ? "flex max-sm:transition-[opacity,scale]" : "hidden max-sm:pointer-events-none max-sm:invisible max-sm:scale-95 max-sm:opacity-0 max-sm:transition-[opacity,scale,visibility]"}`}
       >
         {/* The sash sits in the gap beside the island. */}
         <div ref={ref} className={`flex min-h-0 flex-1 flex-col ${ISLAND}`}>
@@ -82,6 +82,9 @@ export function Sidebar(props: {
           >
             {props.dependencies}
           </Section>
+          <div className="mt-auto flex shrink-0 justify-end p-1.5 sm:hidden">
+            <Toggle open onClick={() => setOpen(false)} />
+          </div>
         </div>
         <Sash
           place="inset-y-0 left-0 w-3"
