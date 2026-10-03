@@ -41,7 +41,7 @@ export function Panel(props: {
       ref={ref}
       // Maximized, it takes all the height and shrinks only by what the content above can't give up.
       style={{ height: maximized ? "100%" : height }}
-      className={`relative mt-3 flex flex-col pl-3 sm:pl-6 lg:pl-10 xl:pl-16 ${maximized ? "" : "max-h-[80%] shrink-0"}`}
+      className={`relative mt-3 flex flex-col pl-3 max-sm:pr-3 sm:pl-6 lg:pl-10 xl:pl-16 ${maximized ? "" : "max-h-[80%] shrink-0"}`}
     >
       <Sash
         vertical
