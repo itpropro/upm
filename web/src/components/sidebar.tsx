@@ -42,7 +42,7 @@ export function Sidebar(props: {
       {/* Both views stay mounted, so folding keeps their scroll, selection and expansion. */}
       <aside
         style={{ width }}
-        className={`relative box-content max-w-[75vw] shrink-0 flex-col pr-3 pl-3 sm:pr-6 lg:pr-10 xl:pr-16 max-sm:absolute max-sm:top-0 max-sm:right-0 max-sm:bottom-3 max-sm:z-20 max-sm:flex max-sm:origin-bottom-right max-sm:duration-200 max-sm:ease-out max-sm:motion-reduce:transition-none ${open ? "flex max-sm:transition-[opacity,scale]" : "hidden max-sm:pointer-events-none max-sm:invisible max-sm:scale-95 max-sm:opacity-0 max-sm:transition-[opacity,scale,visibility]"}`}
+        className={`relative box-content max-w-[75vw] shrink-0 flex-col pr-3 pl-3 sm:pr-6 lg:pr-10 xl:pr-16 max-sm:absolute max-sm:top-0 max-sm:right-0 max-sm:bottom-3 max-sm:z-20 max-sm:flex max-sm:duration-200 max-sm:ease-out max-sm:motion-reduce:transition-none ${open ? "flex max-sm:transition-opacity" : "hidden max-sm:pointer-events-none max-sm:invisible max-sm:opacity-0 max-sm:transition-[opacity,visibility]"}`}
       >
         {/* The sash sits in the gap beside the island. */}
         <div ref={ref} className={`flex min-h-0 flex-1 flex-col ${ISLAND}`}>
