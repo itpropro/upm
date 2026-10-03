@@ -1,7 +1,8 @@
 // The app as an IDE: top bar, sidebar views, the editor, a bottom panel and a status bar.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ResolvedPackage } from "upm/resolver";
-import { runsOn } from "upm/src/resolve.ts";
+import { runsOn, type Platform, type Resolution } from "upm/src/resolve.ts";
+import { createSbom, SBOM } from "upm/src/sbom.ts";
 import type { TarEntry } from "upm/src/tar.ts";
 import {
   createClient,
@@ -57,6 +58,8 @@ export interface View {
   dependencies?: Record<string, string>;
   /** upm's install of it in this tab: true while it runs. */
   installed?: Installed | Error | true;
+  sbomTarget?: Platform;
+  sbomError?: Error;
   /** When the install was asked for, to draw its time while it runs. */
   installStarted?: number;
   /** Its warnings, as upm logs them. */
@@ -169,7 +172,7 @@ export function App({ ready }: { ready?: Promise<unknown> }) {
         resolved.then(
           (done) =>
             run.current === id &&
-            install(id, query.dependencies, registry, next.fetch, done.lockfile),
+            install(id, query.name, query.dependencies, registry, next.fetch, done),
           () => {},
         );
       };
@@ -191,10 +194,11 @@ export function App({ ready }: { ready?: Promise<unknown> }) {
   /** upm's own install of a run's dependencies, in this tab. */
   function install(
     id: number,
+    name: string,
     dependencies: Record<string, string>,
     registry: string,
     logged: typeof fetch,
-    lockfile?: string,
+    resolved: Resolved,
   ) {
     const warnings: string[] = [];
     const update = (part: Partial<View>) =>
@@ -208,17 +212,17 @@ export function App({ ready }: { ready?: Promise<unknown> }) {
       (message, level) => {
         if (level === "warn") warnings.push(message);
       },
-      lockfile,
+      resolved.lockfile,
       logged,
     )
       .then(
         (installed) => {
+          if (run.current !== id) return;
+          installed.files.set(SBOM, sbomFile(resolved.resolution, name));
           last.current = { id, installed };
           update({ installed });
           // The tree keeps its paths through the install, so what was open still is.
-          if (run.current === id) {
-            setSelected((now) => (installed.files.has(now) ? now : "package.json"));
-          }
+          setSelected((now) => (installed.files.has(now) ? now : "package.json"));
         },
         (error: Error) => update({ installed: error }),
       )
@@ -320,6 +324,23 @@ export function App({ ready }: { ready?: Promise<unknown> }) {
     if (!view) return;
     submit(view.spec, registryUrl, undefined, true);
     setSidebar(true);
+  };
+  const chooseSbomTarget = (target?: Platform) => {
+    const resolved = view?.resolved;
+    if (!view || !installed || !resolved || resolved instanceof Error) return;
+    try {
+      const file = sbomFile(resolved.resolution, view.name, target);
+      const next = { ...installed, files: new Map(installed.files) };
+      next.files.set(SBOM, file);
+      last.current = { id: view.id, installed: next };
+      setView({ ...view, installed: next, sbomTarget: target, sbomError: undefined });
+    } catch (error) {
+      setView({
+        ...view,
+        sbomTarget: target,
+        sbomError: error instanceof Error ? error : new Error(String(error)),
+      });
+    }
   };
   /** The Install button: the sidebar shows the tree as it comes in. */
   const installNow = () => {
@@ -430,6 +451,7 @@ export function App({ ready }: { ready?: Promise<unknown> }) {
                 examples={EXAMPLES}
                 onRun={submit}
                 onInstall={installNow}
+                onSbomTarget={chooseSbomTarget}
               />
             </Breadcrumb>
           </main>
@@ -469,6 +491,13 @@ export function App({ ready }: { ready?: Promise<unknown> }) {
       />
     </div>
   );
+}
+
+function sbomFile(resolution: Resolution, name: string, target?: Platform): InstalledFile {
+  const data = new TextEncoder().encode(
+    `${JSON.stringify(createSbom(resolution, name, { target }), null, 2)}\n`,
+  );
+  return { path: SBOM, mode: 0o644, size: data.length, data };
 }
 
 function progressOf(installing: boolean): number | "pending" {
